@@ -1,0 +1,20 @@
+:root {
+  --bg: #1a1a1d;          /* page background, deep charcoal */
+  --surface: #2c2a28;     /* cards, warm dark gray */
+  --accent: #e8a54b;      /* correct/close, buttons — warm amber-gold */
+  --early: #5b8dbe;       /* "too early" feedback, soft blue */
+  --late: #d97757;        /* "too late" feedback, muted coral */
+  --text: #f2efe9;        /* primary, off-white */
+  --text-dim: #9b9691;    /* secondary, muted gray */
+  --win-gradient: linear-gradient(135deg, #e8a54b, #f2c879);
+
+  --radius-card: 14px;
+  --radius-cell: 8px;
+  --shadow-card: 0 6px 24px rgba(0, 0, 0, 0.35);
+
+  --font-ui: -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  /* Accent serif for reveal/results moments only. System stack on purpose —
+     no self-hosted font asset means no extra weight on the Pi's disk/CPU
+     and no dependency to keep in sync. */
+  --font-accent: Georgia, "Times New Roman", serif;
+}
