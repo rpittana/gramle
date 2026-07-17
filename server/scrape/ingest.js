@@ -12,10 +12,14 @@ const IMAGE_EXT_RE = /\.(jpe?g|png|webp)$/i;
 const JSON_EXT_RE = /\.json$/i;
 
 // Turns the raw per-post metadata files from indexProfile into index.json:
-// [{ shortcode, isoDate }], newest first as Instaloader emits them. Videos
-// are dropped here; for carousels, a carousel whose FIRST slide is a video
-// is also dropped, because downloadPosts (--slide 1) would fetch that video
-// and there'd be no image to play.
+// [{ shortcode, slide, isoDate }] — ONE ENTRY PER PHOTO, not per post. A
+// carousel post contributes one entry per non-video slide (all sharing the
+// post's single timestamp), so every photo in a multi-photo post is its own
+// sampleable unit instead of only ever surfacing the first slide. slide is
+// 1-based and matches Instaloader's own sidecar ordering (and therefore its
+// filename suffix — see resolveDownloadedFile). A plain single-image post
+// is just { slide: 1 }. Video slides are skipped individually rather than
+// dropping the whole carousel.
 async function parseIndex(dir) {
   const rawDir = path.join(dir, "raw");
   const entries = await fs.readdir(rawDir).catch(() => []);
@@ -28,10 +32,17 @@ async function parseIndex(dir) {
       const shortcode = node.shortcode;
       const ts = node.taken_at_timestamp ?? node.date;
       if (!shortcode || !ts) continue;
-      if (node.is_video) continue;
-      const firstChild = node.edge_sidecar_to_children?.edges?.[0]?.node;
-      if (firstChild?.is_video) continue;
-      index.push({ shortcode, isoDate: new Date(ts * 1000).toISOString().slice(0, 10) });
+      const isoDate = new Date(ts * 1000).toISOString().slice(0, 10);
+
+      const slides = node.edge_sidecar_to_children?.edges;
+      if (slides && slides.length > 0) {
+        slides.forEach((edge, i) => {
+          if (edge?.node?.is_video) return;
+          index.push({ shortcode, slide: i + 1, isoDate });
+        });
+      } else if (!node.is_video) {
+        index.push({ shortcode, slide: 1, isoDate });
+      }
     } catch {
       // Unparseable metadata for one post shouldn't sink the whole index.
     }
@@ -64,12 +75,36 @@ async function readMeta(dir) {
   }
 }
 
+// Instaloader names a single-image post "{shortcode}.ext" (no suffix) and
+// carousel slide N as "{shortcode}_N.ext". Try the bare name as slide 1
+// FIRST, against the wanted set, before stripping any "_<digits>" suffix —
+// otherwise a shortcode that legitimately ends in "_<digits>" of its own
+// (rare, but shortcodes can contain underscores) would be misread as a
+// slide suffix on a single-image post that never had one.
+function resolveDownloadedFile(filename, wanted) {
+  const base = filename.replace(IMAGE_EXT_RE, "");
+
+  const bareKey = `${base}:1`;
+  if (wanted.has(bareKey)) return { key: bareKey, shortcode: base, slide: 1 };
+
+  const m = base.match(/^(.*)_(\d+)$/);
+  if (m) {
+    const key = `${m[1]}:${Number(m[2])}`;
+    if (wanted.has(key)) return { key, shortcode: m[1], slide: Number(m[2]) };
+  }
+
+  return null;
+}
+
 // Resizes the on-demand downloads for one game, strictly one file at a time
-// (peak memory ≈ one image's working set). Files are named {shortcode}.jpg,
-// or {shortcode}_1.jpg for carousels — try the exact name first so a
-// shortcode that legitimately ends in "_1" isn't mangled by suffix-stripping.
-// Returns [{ photoId, shortcode, isoDate }] for the photos that made it.
-async function ingestDownloads(dir, indexByShortcode, { onProgress } = {}) {
+// (peak memory ≈ one image's working set). downloadPosts fetches ALL slides
+// of any matched (filtered-in) post, since Instaloader can't select specific
+// slide numbers per post in one run — so most raw files here are slides
+// nobody sampled; those are deleted immediately WITHOUT ever going through
+// sharp, keeping the wasted work to a disk copy rather than a resize.
+// wanted: Map<"shortcode:slide", { isoDate }>. Returns
+// [{ photoId, shortcode, slide, isoDate }] for the photos that made it.
+async function ingestDownloads(dir, wanted, { onProgress } = {}) {
   const rawDir = path.join(dir, "raw");
   const photosDir = path.join(dir, "photos");
   await fs.mkdir(photosDir, { recursive: true });
@@ -80,15 +115,14 @@ async function ingestDownloads(dir, indexByShortcode, { onProgress } = {}) {
 
   for (const filename of entries.filter((f) => IMAGE_EXT_RE.test(f))) {
     const rawPath = path.join(rawDir, filename);
-    const base = filename.replace(IMAGE_EXT_RE, "");
-    const shortcode = indexByShortcode.has(base) ? base : base.replace(/_\d+$/, "");
-    const entry = indexByShortcode.get(shortcode);
+    const resolved = resolveDownloadedFile(filename, wanted);
 
-    if (!entry) {
+    if (!resolved) {
       await fs.rm(rawPath, { force: true });
       continue;
     }
 
+    const entry = wanted.get(resolved.key);
     const photoId = crypto.randomBytes(8).toString("hex");
     await sharp(rawPath)
       .rotate()
@@ -97,7 +131,12 @@ async function ingestDownloads(dir, indexByShortcode, { onProgress } = {}) {
       .toFile(path.join(photosDir, `${photoId}.jpg`));
     await fs.rm(rawPath, { force: true });
 
-    results.push({ photoId, shortcode, isoDate: entry.isoDate });
+    results.push({
+      photoId,
+      shortcode: resolved.shortcode,
+      slide: resolved.slide,
+      isoDate: entry.isoDate,
+    });
     resized += 1;
     if (onProgress) onProgress({ resized });
   }

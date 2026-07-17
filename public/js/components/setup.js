@@ -118,7 +118,7 @@ export function renderSetup(container, { onReady }) {
       polling = false;
       progressFill.style.width = "100%";
       progressLabel.textContent = "Album ready.";
-      progressCount.textContent = `${status.postCount} photo posts`;
+      progressCount.textContent = `${status.photoCount} photos`;
       setTimeout(() => onReady({ rounds, dayMode, hardMode }), 400);
       return;
     } else if (status.state === "error") {

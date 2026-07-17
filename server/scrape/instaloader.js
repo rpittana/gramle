@@ -151,17 +151,34 @@ const SAFE_SHORTCODE_RE = /^[A-Za-z0-9_-]+$/;
 // Deep walks (large profile, targets near the end of the indexed window)
 // shouldn't be able to pin the single-concurrency queue forever.
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+// Grace period after every target shortcode has produced at least one file,
+// before killing the child — Instaloader writes a carousel's slides as a
+// burst of several files, and the poll could otherwise catch it mid-burst
+// and truncate the last matched post's slide set.
+const SETTLE_MS = 3000;
 
-// Phase 2: download only the posts a game actually sampled. Instaloader's
-// direct "-<shortcode>" post-target syntax hits a separate GraphQL query
+async function shortcodesPresent(dir) {
+  const files = await fs.readdir(dir).catch(() => []);
+  const bases = new Set();
+  for (const f of files) {
+    if (!IMAGE_EXT_RE.test(f)) continue;
+    bases.add(f.replace(IMAGE_EXT_RE, "").replace(/_\d+$/, ""));
+  }
+  return bases;
+}
+
+// Phase 2: download every photo a game actually sampled (individual
+// carousel slides, not just whole posts). Instaloader's direct
+// "-<shortcode>" post-target syntax hits a separate GraphQL query
 // (single-post lookup) that's currently broken server-side on Instagram's
 // end ("Fetching Post metadata failed", confirmed by manual testing even
 // with a valid authenticated session) — so instead this walks the profile's
 // timeline (the same query indexProfile already uses successfully) and uses
-// --post-filter to only download images for posts whose shortcode is one we
-// sampled. --slide 1 takes just the first image of a carousel — one image
-// per post, which is also what keeps two near-identical shots from the same
-// carousel out of a single game.
+// --post-filter to only download posts whose shortcode is one we sampled
+// from. Instaloader can't select specific slide numbers per post in one
+// run, so every slide of a matched post comes down; ingestDownloads throws
+// away whichever ones weren't actually sampled. shortcodes must already be
+// DEDUPED — a single post can supply more than one sampled slide.
 async function downloadPosts(username, shortcodes, rawDir, { onProgress, registerChild } = {}) {
   await fs.mkdir(rawDir, { recursive: true });
   const auth = await buildAuthArgs();
@@ -178,8 +195,6 @@ async function downloadPosts(username, shortcodes, rawDir, { onProgress, registe
     "--no-metadata-json",
     "--no-compress-json",
     "--no-profile-pic",
-    "--slide",
-    "1",
     "--post-filter",
     filterExpr,
     "--filename-pattern",
@@ -190,21 +205,23 @@ async function downloadPosts(username, shortcodes, rawDir, { onProgress, registe
     username,
   ];
 
-  const target = shortcodes.length;
-  let foundAll = false;
+  let allFoundAt = null;
 
   const { stderrTail } = await runInstaloader(args, rawDir, {
     registerChild: (child) => {
       if (registerChild) registerChild(child);
       setTimeout(() => {
-        if (!foundAll) child.kill("SIGTERM");
+        if (allFoundAt === null) child.kill("SIGTERM");
       }, DOWNLOAD_TIMEOUT_MS);
     },
     onTick: async (child) => {
-      const n = await countFiles(rawDir, IMAGE_EXT_RE);
-      if (onProgress) onProgress({ downloaded: n });
-      if (n >= target && !foundAll) {
-        foundAll = true;
+      const present = await shortcodesPresent(rawDir);
+      if (onProgress) onProgress({ downloaded: present.size });
+
+      if (allFoundAt === null) {
+        const gotAll = shortcodes.every((sc) => present.has(sc));
+        if (gotAll) allFoundAt = Date.now();
+      } else if (Date.now() - allFoundAt >= SETTLE_MS) {
         child.kill("SIGTERM");
       }
     },

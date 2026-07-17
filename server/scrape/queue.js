@@ -1,6 +1,6 @@
 const path = require("path");
 const { indexProfile, downloadPosts, parseProfileInput } = require("./instaloader");
-const { parseIndex, readIndex, writeMeta, readMeta, ingestDownloads, clearRaw } = require("./ingest");
+const { parseIndex, writeMeta, readMeta, ingestDownloads, clearRaw } = require("./ingest");
 const { sessionDir } = require("../sessions");
 const { MAX_POSTS } = require("../config");
 const engine = require("../game/engine");
@@ -30,7 +30,7 @@ function getStatus(sessionId, kind) {
     downloaded: job.downloaded,
     resized: job.resized,
     total: job.total,
-    postCount: job.postCount,
+    photoCount: job.photoCount,
     queuePosition,
     error: job.error,
   };
@@ -62,7 +62,8 @@ function enqueueIndex(sessionId, profileInput) {
   pump();
 }
 
-// payload: { shortcodes, gameConfig: { dayMode, hardMode, minYear, maxYear } }
+// payload: { sampledPhotos: [{shortcode, slide, isoDate}],
+//            gameConfig: { dayMode, hardMode, minYear, maxYear } }
 function enqueuePrep(sessionId, payload) {
   assertNotBusy(sessionId, "prep");
   jobs.set(key(sessionId, "prep"), {
@@ -70,7 +71,7 @@ function enqueuePrep(sessionId, payload) {
     state: "queued",
     downloaded: 0,
     resized: 0,
-    total: payload.shortcodes.length,
+    total: payload.sampledPhotos.length,
     payload,
   });
   pendingQueue.push({ sessionId, kind: "prep" });
@@ -108,16 +109,24 @@ async function pump() {
       await writeMeta(dir, { username: job.username });
       await clearRaw(dir);
       if (index.length === 0) {
-        throw new Error("That profile has no photo posts to play with.");
+        throw new Error("That profile has no photos to play with.");
       }
-      job.postCount = index.length;
+      job.photoCount = index.length; // index.json is per-photo (per slide), not per-post
       job.state = "done";
     } else {
       const { username } = await readMeta(dir);
       if (!username) {
         throw new Error("No indexed profile for this session — scrape a profile first.");
       }
-      await downloadPosts(username, job.payload.shortcodes, rawDir, {
+      // sampledPhotos: [{ shortcode, slide, isoDate }] — individual photos
+      // (one per carousel slide, not per post) chosen in /api/game/start.
+      // A single post can supply more than one sampled slide, so the
+      // post-filter target list must be deduped.
+      const sampledPhotos = job.payload.sampledPhotos;
+      const uniqueShortcodes = [...new Set(sampledPhotos.map((p) => p.shortcode))];
+      const wanted = new Map(sampledPhotos.map((p) => [`${p.shortcode}:${p.slide}`, p]));
+
+      await downloadPosts(username, uniqueShortcodes, rawDir, {
         onProgress: ({ downloaded }) => {
           job.downloaded = downloaded;
         },
@@ -125,9 +134,7 @@ async function pump() {
           activeChild = child;
         },
       });
-      const index = await readIndex(dir);
-      const byShortcode = new Map(index.map((e) => [e.shortcode, e]));
-      const photos = await ingestDownloads(dir, byShortcode, {
+      const photos = await ingestDownloads(dir, wanted, {
         onProgress: ({ resized }) => {
           job.resized = resized;
         },

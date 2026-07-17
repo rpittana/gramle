@@ -126,33 +126,55 @@ Phase 1 — index (POST /api/scrape):
       --no-captions --no-compress-json --filename-pattern {shortcode}
       --dirname-pattern <CACHE_DIR>/<sessionId>/raw  <username>
   → one small {shortcode}.json per post, NO images
-  → ingest.parseIndex: read each json → { shortcode, isoDate } from
-    node.taken_at_timestamp; DROP videos (node.is_video) and carousels whose
-    first slide is a video; write index.json; delete raw/
-  → maxPosts cap counts POSTS (json files), so carousels no longer burn
-    through the cap the way per-image counting did
+  → ingest.parseIndex: read each json → ONE ENTRY PER PHOTO, not per post —
+    a carousel post contributes { shortcode, slide, isoDate } for every
+    non-video slide (1-based, matching Instaloader's own sidecar order),
+    all sharing the post's single taken_at_timestamp; a plain post is just
+    { slide: 1 }. Individual video slides are skipped; a carousel isn't
+    dropped just because one of its slides is a video. write index.json;
+    delete raw/. (Confirmed on a real profile: 30 posts → 204 indexed
+    photos, up to 20 slides on one carousel — this is what surfaces every
+    photo in a multi-photo post as its own playable unit, not just the first.)
+  → maxPosts cap counts POSTS WALKED (json files), independent of how many
+    photos each one contributes — a carousel-heavy account naturally
+    produces a larger index without a config change
   → ingest.writeMeta writes meta.json: { username } — the prep phase needs
     this to re-walk the profile (see below), and only index.json survives
     between phases in the session directory
 
 Phase 2 — prep (POST /api/game/start):
-  → sample N shortcodes from index.json (one per post — this is what keeps
-    two shots from the same carousel out of a single game)
-  → spawn instaloader AGAINST THE PROFILE AGAIN (not a direct per-post
-    lookup — see caveat below) with the same suppression flags plus:
-      --slide 1 --post-filter 'shortcode in {"SC1", "SC2", ...}'
-      --filename-pattern {shortcode}  <username>
-    (--slide 1 = first image only of a carousel). Polls the raw dir and
-    SIGTERMs once every target shortcode has produced a file, or after a
-    5-minute hard timeout — this walk can't jump straight to a post, so in
-    the worst case it re-walks up to maxPosts posts to find its targets
-  → ingest.ingestDownloads, per file, strictly sequentially:
+  → sample N individual photos from index.json (each a distinct
+    {shortcode, slide} — a single game CAN sample more than one slide from
+    the same carousel, since those are genuinely different photos)
+  → dedupe to the underlying unique shortcodes and spawn instaloader
+    AGAINST THE PROFILE AGAIN (not a direct per-post lookup — see caveat
+    below) with the same suppression flags plus:
+      --post-filter 'shortcode in {"SC1", "SC2", ...}' --filename-pattern
+      {shortcode}  <username>
+    No --slide restriction — Instaloader can't select specific slide
+    numbers per post in one run, so EVERY slide of a matched post comes
+    down; ingestDownloads discards whichever ones weren't actually sampled
+    (deleted straight from raw/, never resized, so the waste is a disk
+    copy, not CPU). Polls the raw dir for unique shortcode coverage and
+    SIGTERMs ~3s (SETTLE_MS) after every target shortcode has produced at
+    least one file — the settle delay matters because a carousel's slides
+    land as a burst of several files, and polling could otherwise catch it
+    mid-burst and truncate the last matched post's slide set. Also bounded
+    by a 5-minute hard timeout — this walk can't jump straight to a post,
+    so in the worst case it re-walks up to maxPosts posts to find its targets
+  → ingest.ingestDownloads, per file: resolveDownloadedFile maps filename →
+    (shortcode, slide) — bare "{shortcode}.jpg" is tried as slide 1 FIRST,
+    against the wanted set, before stripping any trailing "_<digits>"; only
+    falls back to treating that suffix as a slide number if the bare name
+    isn't something we asked for. (This ordering matters: a shortcode that
+    legitimately ends in "_<digits>" of its own, on a single-image post,
+    must not be misread as carrying a slide suffix it never had.) Anything
+    not in the wanted (shortcode:slide) set is deleted unresized. For a
+    match, strictly sequentially:
       1. sharp(rawPath).rotate().resize({ width: 500, height: 500, fit: "inside",
            withoutEnlargement: true }).jpeg({ quality: 75 })
            .toFile(<CACHE_DIR>/<sessionId>/photos/<photoId>.jpg)
-      2. map filename → shortcode ({shortcode}.jpg or {shortcode}_1.jpg;
-         exact match first, then strip _N suffix) → isoDate from index
-      3. DELETE the raw file immediately        ← disk usage stays bounded
+      2. DELETE the raw file immediately        ← disk usage stays bounded
   → engine.initRounds(...) with the resulting photos; delete raw/
 ```
 

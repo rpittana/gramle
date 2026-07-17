@@ -35,8 +35,10 @@ function shuffled(arr) {
   return copy;
 }
 
-// Samples this game's posts from the index and queues the on-demand
-// download+resize ("prep") job. The client polls /game/status until ready.
+// Samples this game's PHOTOS (index.json has one entry per photo — every
+// carousel slide is its own entry, not just the post) and queues the
+// on-demand download+resize ("prep") job. The client polls /game/status
+// until ready.
 router.post("/game/start", async (req, res) => {
   try {
     const index = await readIndex(sessionDir(req.session.sessionId));
@@ -51,7 +53,7 @@ router.post("/game/start", async (req, res) => {
 
     engine.clearGame(req.session.sessionId);
     queue.enqueuePrep(req.session.sessionId, {
-      shortcodes: sample.map((e) => e.shortcode),
+      sampledPhotos: sample,
       gameConfig: {
         dayMode: Boolean(dayMode),
         hardMode: Boolean(hardMode),
