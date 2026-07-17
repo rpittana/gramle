@@ -4,11 +4,13 @@ const MONTHS_SHORT = [
 
 function arrow(direction) {
   if (direction === "correct") return "✓";
+  if (direction === "wrong") return "✕"; // hard mode: no direction revealed
   return direction === "later" ? "↑" : "↓";
 }
 
 function cellClass(direction) {
   if (direction === "correct") return "cell-correct";
+  if (direction === "wrong") return "cell-wrong";
   return direction === "later" ? "cell-early" : "cell-late";
 }
 

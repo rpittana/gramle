@@ -8,73 +8,101 @@ const sharp = require("sharp");
 sharp.cache(false);
 sharp.concurrency(1);
 
-// Instaloader's default filename pattern is "{date_utc}_UTC[...]", e.g.
-// "2024-01-01_12-00-00_UTC.jpg". That's all the date info this game needs.
-const FILENAME_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})_\d{2}-\d{2}-\d{2}_UTC/;
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp)$/i;
+const JSON_EXT_RE = /\.json$/i;
 
-function parseDateFromFilename(filename) {
-  const m = filename.match(FILENAME_DATE_RE);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  return `${y}-${mo}-${d}`;
+// Turns the raw per-post metadata files from indexProfile into index.json:
+// [{ shortcode, isoDate }], newest first as Instaloader emits them. Videos
+// are dropped here; for carousels, a carousel whose FIRST slide is a video
+// is also dropped, because downloadPosts (--slide 1) would fetch that video
+// and there'd be no image to play.
+async function parseIndex(dir) {
+  const rawDir = path.join(dir, "raw");
+  const entries = await fs.readdir(rawDir).catch(() => []);
+  const index = [];
+
+  for (const filename of entries.filter((f) => JSON_EXT_RE.test(f))) {
+    try {
+      const data = JSON.parse(await fs.readFile(path.join(rawDir, filename), "utf8"));
+      const node = data.node ?? data;
+      const shortcode = node.shortcode;
+      const ts = node.taken_at_timestamp ?? node.date;
+      if (!shortcode || !ts) continue;
+      if (node.is_video) continue;
+      const firstChild = node.edge_sidecar_to_children?.edges?.[0]?.node;
+      if (firstChild?.is_video) continue;
+      index.push({ shortcode, isoDate: new Date(ts * 1000).toISOString().slice(0, 10) });
+    } catch {
+      // Unparseable metadata for one post shouldn't sink the whole index.
+    }
+  }
+
+  await fs.writeFile(path.join(dir, "index.json"), JSON.stringify(index));
+  return index;
 }
 
-async function readManifest(dir) {
+async function readIndex(dir) {
   try {
-    return JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8"));
+    return JSON.parse(await fs.readFile(path.join(dir, "index.json"), "utf8"));
   } catch {
     return [];
   }
 }
 
-async function writeManifest(dir, manifest) {
-  await fs.writeFile(path.join(dir, "manifest.json"), JSON.stringify(manifest));
+// The prep phase needs the profile's username to re-walk its timeline (see
+// instaloader.downloadPosts), but only index.json (posts) survives between
+// the index and prep phases in the session directory — so stash it alongside.
+async function writeMeta(dir, meta) {
+  await fs.writeFile(path.join(dir, "meta.json"), JSON.stringify(meta));
 }
 
-// Processes every raw image strictly one at a time: resize -> write -> delete
-// the source -> append to the manifest, before moving to the next file. This
-// is what keeps peak memory to roughly one image's worth of working set,
-// regardless of how many photos the account has.
-async function ingestSession(dir, { onProgress } = {}) {
+async function readMeta(dir) {
+  try {
+    return JSON.parse(await fs.readFile(path.join(dir, "meta.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+// Resizes the on-demand downloads for one game, strictly one file at a time
+// (peak memory ≈ one image's working set). Files are named {shortcode}.jpg,
+// or {shortcode}_1.jpg for carousels — try the exact name first so a
+// shortcode that legitimately ends in "_1" isn't mangled by suffix-stripping.
+// Returns [{ photoId, shortcode, isoDate }] for the photos that made it.
+async function ingestDownloads(dir, indexByShortcode, { onProgress } = {}) {
   const rawDir = path.join(dir, "raw");
   const photosDir = path.join(dir, "photos");
   await fs.mkdir(photosDir, { recursive: true });
 
-  const manifest = await readManifest(dir);
-
-  const entries = await fs.readdir(rawDir, { withFileTypes: true }).catch(() => []);
-  const files = entries.filter((e) => e.isFile() && IMAGE_EXT_RE.test(e.name)).map((e) => e.name);
-
+  const entries = await fs.readdir(rawDir).catch(() => []);
+  const results = [];
   let resized = 0;
-  for (const filename of files) {
-    const isoDate = parseDateFromFilename(filename);
-    const rawPath = path.join(rawDir, filename);
 
-    if (!isoDate) {
-      // Can't place this photo on the timeline — drop it rather than guess.
+  for (const filename of entries.filter((f) => IMAGE_EXT_RE.test(f))) {
+    const rawPath = path.join(rawDir, filename);
+    const base = filename.replace(IMAGE_EXT_RE, "");
+    const shortcode = indexByShortcode.has(base) ? base : base.replace(/_\d+$/, "");
+    const entry = indexByShortcode.get(shortcode);
+
+    if (!entry) {
       await fs.rm(rawPath, { force: true });
       continue;
     }
 
     const photoId = crypto.randomBytes(8).toString("hex");
-    const outPath = path.join(photosDir, `${photoId}.jpg`);
-
     await sharp(rawPath)
       .rotate()
       .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 75 })
-      .toFile(outPath);
-
+      .toFile(path.join(photosDir, `${photoId}.jpg`));
     await fs.rm(rawPath, { force: true });
 
-    manifest.push({ photoId, isoDate });
+    results.push({ photoId, shortcode, isoDate: entry.isoDate });
     resized += 1;
     if (onProgress) onProgress({ resized });
   }
 
-  await writeManifest(dir, manifest);
-  return manifest;
+  return results;
 }
 
 async function clearRaw(dir) {
@@ -83,4 +111,4 @@ async function clearRaw(dir) {
   await fs.mkdir(rawDir, { recursive: true });
 }
 
-module.exports = { ingestSession, clearRaw, readManifest };
+module.exports = { parseIndex, readIndex, writeMeta, readMeta, ingestDownloads, clearRaw };

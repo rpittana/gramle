@@ -13,11 +13,24 @@ function ordinalSuffix(n) {
   }
 }
 
+// Any field guessed correctly at any point in the round stays locked for the
+// rest of it — the player shouldn't have to re-enter (or be able to lose) a
+// field they've already nailed.
+function deriveLocks(guesses) {
+  const locked = {};
+  for (const { guess, feedback } of guesses) {
+    if (feedback.month === "correct") locked.month = guess.month;
+    if (feedback.year === "correct") locked.year = guess.year;
+    if (feedback.day === "correct") locked.day = guess.day;
+  }
+  return locked;
+}
+
 // onGameOver receives a client-accumulated summary ({ totalScore, rounds })
 // built from each round's guess response — there is no server round-trip to
 // fetch a summary, so ending a game doesn't touch the session's image
 // directory. Only the "New account" action (POST /api/game/end) does that.
-export async function renderBoard(container, { dayMode, minYear, maxYear, onGameOver }) {
+export async function renderBoard(container, { onGameOver }) {
   const roundResults = [];
   let score = 0;
   let guessHandle = null;
@@ -46,6 +59,17 @@ export async function renderBoard(container, { dayMode, minYear, maxYear, onGame
     roundChip.textContent = `Photo ${round.roundIndex + 1} / ${round.totalRounds} · ${score} pts`;
   }
 
+  function renderInput(round, locked) {
+    guessSlot.innerHTML = "";
+    guessHandle = renderGuessInput(guessSlot, {
+      dayMode: round.dayMode,
+      minYear: round.minYear,
+      maxYear: round.maxYear,
+      locked,
+      onGuess: (guess) => handleGuess(round, guess),
+    });
+  }
+
   async function loadRound() {
     const round = await api.gameRound();
     updateChip(round);
@@ -59,14 +83,7 @@ export async function renderBoard(container, { dayMode, minYear, maxYear, onGame
     }
 
     renderHistory(historyList, { guesses: round.guesses, dayMode: round.dayMode });
-
-    guessSlot.innerHTML = "";
-    guessHandle = renderGuessInput(guessSlot, {
-      dayMode: round.dayMode,
-      minYear,
-      maxYear,
-      onGuess: (guess) => handleGuess(round, guess),
-    });
+    renderInput(round, deriveLocks(round.guesses));
   }
 
   async function handleGuess(round, guess) {
@@ -81,7 +98,7 @@ export async function renderBoard(container, { dayMode, minYear, maxYear, onGame
     if (!result.roundOver) {
       const fresh = await api.gameRound();
       renderHistory(historyList, { guesses: fresh.guesses, dayMode: fresh.dayMode });
-      guessHandle.reset();
+      renderInput(fresh, deriveLocks(fresh.guesses));
       return;
     }
 

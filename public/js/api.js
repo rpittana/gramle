@@ -36,8 +36,8 @@ export const api = {
   logout: () => apiFetch("/api/logout", { method: "POST" }),
   scrape: (profileUrl) => apiFetch("/api/scrape", { method: "POST", body: { profileUrl } }),
   scrapeStatus: () => apiFetch("/api/scrape/status"),
-  gameStart: (rounds, dayMode) =>
-    apiFetch("/api/game/start", { method: "POST", body: { rounds, dayMode } }),
+  gameStart: (config) => apiFetch("/api/game/start", { method: "POST", body: config }),
+  gameStatus: () => apiFetch("/api/game/status"),
   gameRound: () => apiFetch("/api/game/round"),
   gameGuess: (guess) => apiFetch("/api/game/guess", { method: "POST", body: guess }),
   gameEnd: () => apiFetch("/api/game/end", { method: "POST" }),

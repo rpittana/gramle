@@ -22,6 +22,13 @@ export function renderSetup(container, { onReady }) {
           </button>
         </div>
 
+        <div class="toggle-row">
+          <span>Hard mode — no hints, 1.5× points</span>
+          <button type="button" id="hard-toggle" class="toggle" aria-pressed="false">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+
         <div class="field-label">Rounds</div>
         <div class="rounds-row" id="rounds-row">
           ${ROUND_OPTIONS.map(
@@ -35,7 +42,7 @@ export function renderSetup(container, { onReady }) {
       </form>
 
       <div class="card progress-card" id="progress-card" hidden>
-        <p class="progress-label" id="progress-label">Gathering the album…</p>
+        <p class="progress-label" id="progress-label">Reading the album…</p>
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         <p class="progress-count" id="progress-count"></p>
       </div>
@@ -43,12 +50,14 @@ export function renderSetup(container, { onReady }) {
   `;
 
   let dayMode = false;
+  let hardMode = false;
   let rounds = ROUND_OPTIONS[DEFAULT_ROUND_INDEX];
   let polling = false;
 
   const form = container.querySelector("#setup-form");
   const urlInput = container.querySelector("#profile-url");
   const dayToggle = container.querySelector("#day-toggle");
+  const hardToggle = container.querySelector("#hard-toggle");
   const roundsRow = container.querySelector("#rounds-row");
   const errorEl = container.querySelector("#setup-error");
   const progressCard = container.querySelector("#progress-card");
@@ -56,11 +65,16 @@ export function renderSetup(container, { onReady }) {
   const progressFill = container.querySelector("#progress-fill");
   const progressCount = container.querySelector("#progress-count");
 
-  dayToggle.addEventListener("click", () => {
-    dayMode = !dayMode;
-    dayToggle.classList.toggle("toggle-on", dayMode);
-    dayToggle.setAttribute("aria-pressed", String(dayMode));
-  });
+  function wireToggle(btn, onFlip) {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.classList.toggle("toggle-on", on);
+      btn.setAttribute("aria-pressed", String(on));
+      onFlip(on);
+    });
+  }
+  wireToggle(dayToggle, (on) => (dayMode = on));
+  wireToggle(hardToggle, (on) => (hardMode = on));
 
   roundsRow.addEventListener("click", (e) => {
     const btn = e.target.closest(".chip-btn");
@@ -77,6 +91,8 @@ export function renderSetup(container, { onReady }) {
     errorEl.hidden = false;
   }
 
+  // The scrape job only indexes post dates now (no image downloads) — the
+  // sampled photos are fetched later, when the game starts.
   async function pollStatus() {
     if (!polling) return;
     let status;
@@ -84,7 +100,7 @@ export function renderSetup(container, { onReady }) {
       status = await api.scrapeStatus();
     } catch {
       polling = false;
-      showError("Lost connection while scraping.");
+      showError("Lost connection while reading the album.");
       return;
     }
 
@@ -94,16 +110,16 @@ export function renderSetup(container, { onReady }) {
       progressCount.textContent = "";
       progressFill.style.width = "8%";
     } else if (status.state === "running") {
-      const shown = status.resized || status.downloaded || 0;
-      progressLabel.textContent = status.resized > 0 ? "Resizing photos…" : "Gathering the album…";
-      progressCount.textContent = `${shown} photos`;
-      progressFill.style.width = `${Math.min(95, 10 + shown * 2)}%`;
+      const n = status.indexed || 0;
+      progressLabel.textContent = "Reading the album…";
+      progressCount.textContent = `${n} posts found`;
+      progressFill.style.width = `${Math.min(95, 10 + n * 2)}%`;
     } else if (status.state === "done") {
       polling = false;
       progressFill.style.width = "100%";
       progressLabel.textContent = "Album ready.";
-      progressCount.textContent = `${status.photoCount} photos`;
-      setTimeout(() => onReady({ rounds, dayMode }), 400);
+      progressCount.textContent = `${status.postCount} photo posts`;
+      setTimeout(() => onReady({ rounds, dayMode, hardMode }), 400);
       return;
     } else if (status.state === "error") {
       polling = false;

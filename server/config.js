@@ -1,4 +1,5 @@
 const path = require("path");
+const os = require("os");
 require("dotenv").config();
 
 const GAME_PASSWORD = process.env.GAME_PASSWORD;
@@ -21,6 +22,16 @@ const SESSION_TTL_MIN = parseInt(process.env.SESSION_TTL_MIN, 10) || 30;
 // anyway (e.g. via pipx or an already-unmanaged environment).
 const INSTALOADER_BIN = process.env.INSTALOADER_BIN || "instaloader";
 
+// Optional authenticated-scraping mode: Instagram increasingly 403s anonymous
+// GraphQL queries outright. If IG_LOGIN_USER is set, the scraper reuses a
+// previously-saved Instaloader session file instead of scraping anonymously.
+// That session file is created by a one-time interactive login the operator
+// runs themselves (see .env.example) — this app never sees or stores the
+// account's actual password, only the resulting session cookie file.
+const IG_LOGIN_USER = process.env.IG_LOGIN_USER || null;
+const IG_SESSION_FILE =
+  process.env.IG_SESSION_FILE || path.join(os.homedir(), ".config", "gramle", "instaloader-session");
+
 module.exports = {
   GAME_PASSWORD,
   PORT,
@@ -28,4 +39,6 @@ module.exports = {
   MAX_POSTS,
   SESSION_TTL_MIN,
   INSTALOADER_BIN,
+  IG_LOGIN_USER,
+  IG_SESSION_FILE,
 };

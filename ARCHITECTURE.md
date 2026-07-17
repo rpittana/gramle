@@ -102,10 +102,11 @@ gramle/
 | `GET` | `/` + static | none | SPA shell |
 | `POST` | `/api/login` | rate-limited | `{password}` → sets cookie, `204`. Wrong password → `401`. Locked out → `429` + retry-after. |
 | `POST` | `/api/logout` | session | Destroys session (incl. its directory), clears cookie. |
-| `POST` | `/api/scrape` | session | `{profileUrl, maxPosts?}`. Validate/normalize URL (accept `instagram.com/<username>` forms and bare usernames; reject anything else). Enqueue job, return `{jobId}`. `409` if this session already has a queued/running job. |
-| `GET` | `/api/scrape/status` | session | `{state: "queued"\|"running"\|"done"\|"error", downloaded, resized, queuePosition, photoCount?, error?}`. Client polls every ~2s. No SSE/websockets. |
-| `POST` | `/api/game/start` | session | `{rounds, dayMode}`. Requires a completed scrape. Samples `rounds` random photos from the manifest (no repeats). Also returns `{minYear, maxYear}` derived from the manifest to bound the year picker — this does not leak per-round answers. |
-| `GET` | `/api/game/round` | session | Current round: `{roundIndex, totalRounds, photoUrl, guessesUsed, guessesRemaining, dayMode, revealedDay?}` where `revealedDay` is present only when `dayMode` is off. **True dates never leave the server until the round ends.** |
+| `POST` | `/api/scrape` | session | `{profileUrl}`. Validate/normalize URL (accept `instagram.com/<username>` forms and bare usernames; reject anything else). Enqueues an **index** job (post metadata only, no images). `409` if this session already has one queued/running. |
+| `GET` | `/api/scrape/status` | session | Index job: `{state: "none"\|"queued"\|"running"\|"done"\|"error", indexed, queuePosition, postCount?, error?}`. Client polls every ~2s. No SSE/websockets. |
+| `POST` | `/api/game/start` | session | `{rounds, dayMode, hardMode}`. Requires a completed index. Samples `rounds` random posts (no repeats — one entry per post), enqueues a **prep** job that downloads + resizes just those photos, returns `202 {preparing: true}`. Year-picker bounds are derived from the FULL index (all posts), so they span the account's real history without leaking which era this game's sample came from. |
+| `GET` | `/api/game/status` | session | Prep job: `{state: "none"\|"queued"\|"running"\|"ready"\|"error", downloaded, resized, total, error?}`. The game is playable once `ready`. |
+| `GET` | `/api/game/round` | session | Current round: `{roundIndex, totalRounds, photoUrl, guessesUsed, guessesRemaining, guesses, dayMode, hardMode, minYear, maxYear, revealedDay?}` where `revealedDay` is present only when `dayMode` is off. **True dates never leave the server until the round ends.** |
 | `POST` | `/api/game/guess` | session | `{year, month, day?}` → `{feedback, roundOver, solved?, trueDate?, pointsEarned?}`. `trueDate` and points only when the round is over. |
 | `POST` | `/api/game/end` | session | Final summary `{totalScore, rounds: [...]}`; deletes the session image directory immediately. |
 | `GET` | `/img/:photoId.jpg` | session | Streams the resized JPEG **from the requesting session's own directory only** — session comes from the cookie, never the URL, so users cannot fetch each other's images. Sanitize `photoId` against path traversal. `Cache-Control: private, max-age=1800`. |
@@ -114,24 +115,61 @@ gramle/
 
 ## 5. Scrape → ingest pipeline (memory-critical)
 
+Two-phase, on-demand: a scrape only **indexes** post metadata; images are downloaded
+per-game, for just the posts that game sampled. Both phases run through one global
+FIFO queue with concurrency 1 (RAM + IP hygiene).
+
 ```
-POST /api/scrape
-  → queue.js: FIFO promise chain, concurrency = 1 (one scrape job at a time, globally)
-  → spawn python3 -m instaloader with flags:
-      --no-videos --no-video-thumbnails --no-captions --no-compress-json
-      --count=<maxPosts> --dirname-pattern=<CACHE_DIR>/<sessionId>/raw
-      <username>
-  → Instaloader downloads full-res JPEGs sequentially to raw/
-  → ingest.js, per file, strictly sequentially:
+Phase 1 — index (POST /api/scrape):
+  → spawn instaloader with:
+      --no-pictures --no-videos --no-video-thumbnails --no-profile-pic
+      --no-captions --no-compress-json --filename-pattern {shortcode}
+      --dirname-pattern <CACHE_DIR>/<sessionId>/raw  <username>
+  → one small {shortcode}.json per post, NO images
+  → ingest.parseIndex: read each json → { shortcode, isoDate } from
+    node.taken_at_timestamp; DROP videos (node.is_video) and carousels whose
+    first slide is a video; write index.json; delete raw/
+  → maxPosts cap counts POSTS (json files), so carousels no longer burn
+    through the cap the way per-image counting did
+  → ingest.writeMeta writes meta.json: { username } — the prep phase needs
+    this to re-walk the profile (see below), and only index.json survives
+    between phases in the session directory
+
+Phase 2 — prep (POST /api/game/start):
+  → sample N shortcodes from index.json (one per post — this is what keeps
+    two shots from the same carousel out of a single game)
+  → spawn instaloader AGAINST THE PROFILE AGAIN (not a direct per-post
+    lookup — see caveat below) with the same suppression flags plus:
+      --slide 1 --post-filter 'shortcode in {"SC1", "SC2", ...}'
+      --filename-pattern {shortcode}  <username>
+    (--slide 1 = first image only of a carousel). Polls the raw dir and
+    SIGTERMs once every target shortcode has produced a file, or after a
+    5-minute hard timeout — this walk can't jump straight to a post, so in
+    the worst case it re-walks up to maxPosts posts to find its targets
+  → ingest.ingestDownloads, per file, strictly sequentially:
       1. sharp(rawPath).rotate().resize({ width: 500, height: 500, fit: "inside",
            withoutEnlargement: true }).jpeg({ quality: 75 })
            .toFile(<CACHE_DIR>/<sessionId>/photos/<photoId>.jpg)
-      2. Parse post timestamp from Instaloader's filename pattern
-         (YYYY-MM-DD_HH-MM-SS_UTC.jpg) — sufficient; ignore the .json metadata files.
-      3. Append { photoId, isoDate } to manifest.json
-      4. DELETE the raw file immediately        ← disk usage stays bounded
-  → When the Python process exits, delete the entire raw/ directory.
+      2. map filename → shortcode ({shortcode}.jpg or {shortcode}_1.jpg;
+         exact match first, then strip _N suffix) → isoDate from index
+      3. DELETE the raw file immediately        ← disk usage stays bounded
+  → engine.initRounds(...) with the resulting photos; delete raw/
 ```
+
+Spawn hygiene (both phases): `stdio: ["ignore", "pipe", "pipe"]` — stdin closed so
+any interactive fallback prompt (e.g. Instaloader re-asking for a password when its
+session check fails) dies fast instead of hanging; stdout drained so a chatty run
+can't fill the pipe buffer and stall the child.
+
+**Caveat confirmed by manual testing:** Instaloader's direct single-post lookup
+(`-<shortcode>` as a CLI target) hits a separate GraphQL query than the profile-timeline
+walk indexing uses, and that query currently fails outright (`Fetching Post metadata
+failed`) even with a valid authenticated session — this looked identical in kind to the
+already-known broken-session-check bug (upstream, not ours) but is a distinct endpoint.
+`--post-filter` on a normal profile walk avoids it entirely by reusing the query that's
+known to work, at the cost of the walk-depth tradeoff described above. If a future
+Instaloader release fixes direct post lookup, the walk-and-filter approach can be dropped
+for something more direct — but don't switch back without re-confirming it actually works.
 
 Rules:
 
@@ -157,10 +195,20 @@ requires a real logged-in account and is ban-prone; headless Chromium is a nonst
 sequentially (low-memory) by nature.
 
 **Caveat to preserve in code structure:** Instagram intermittently blocks anonymous access
-even to public profiles. Keep the scraper behind a narrow interface —
+even to public profiles (observed in practice: a blanket 403 on the anonymous GraphQL query,
+which Instaloader itself misreports as "profile does not exist" — classify on stderr content
+rather than trusting that message literally). Keep the scraper behind a narrow interface —
 `scrape(username, destDir, { maxPosts, onProgress }) → Promise<{count}>` — so it can be
 swapped (gallery-dl, manual photo-zip upload) without touching the game engine. Surface
 failures to the user; do not retry automatically.
+
+**Optional authenticated mode:** if anonymous requests get blanket-blocked, `IG_LOGIN_USER` +
+`IG_SESSION_FILE` (see `.env.example`) switch the scraper to `--login --sessionfile`,
+reusing a session created by a one-time *interactive* login the operator runs themselves.
+The app never sees or stores the account's password — only the resulting session cookie
+file. Use a throwaway account; it risks getting flagged for scraping. If the session file
+is missing, fail fast with a clear error rather than spawning Instaloader, which would
+otherwise block forever on a password prompt with no TTY to answer it.
 
 ---
 
@@ -204,6 +252,15 @@ Additionally, `raw/` is deleted as soon as ingest finishes, even mid-session.
   ("Posted on the **2nd** of ?/?") so scheduling gaps (a Halloween photo posted Nov 2)
   don't distort month guessing, and it doubles as a clue. Day mode ON: day is a third
   guessed field; a round is solved only when all three fields are exact.
+- **Sticky correct fields:** once a field comes back `"correct"`, the UI keeps it
+  pre-filled and disabled (amber-tinted) for the rest of the round — the player never
+  re-enters a field they've already nailed. Server-side, the feedback history in the
+  round view is what the client derives locks from, so a page refresh preserves them.
+- **Hard mode (toggle at setup):** directional hints are masked server-side — any
+  non-correct field comes back `"wrong"` (rendered as a dim ✕ cell, no arrow) *before*
+  being stored in the guess history, so the round view can't leak directions either.
+  In exchange, every round's points (solve or consolation) are multiplied by **1.5×**
+  and rounded.
 - **Round ends** when solved or when 6 guesses are exhausted; only then does the response
   include `trueDate` and points.
 

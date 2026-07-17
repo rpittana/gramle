@@ -13,34 +13,20 @@ function isoToDateParts(isoDate) {
   return { year, month, day };
 }
 
-function shuffled(arr) {
-  const copy = arr.slice();
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-// manifest: [{ photoId, isoDate }, ...] for the session's full scraped set.
-// Samples `rounds` photos without repeats (capped to what's available) and
-// resets any prior game state for this session.
-function startGame(sessionId, manifest, { rounds, dayMode }) {
-  if (!manifest || manifest.length === 0) {
-    const err = new Error("No photos available — scrape a profile first.");
-    err.status = 400;
-    throw err;
-  }
-
-  const roundCount = Math.max(1, Math.min(rounds || 8, manifest.length));
-  const sample = shuffled(manifest).slice(0, roundCount);
-  const years = manifest.map((p) => isoToDateParts(p.isoDate).year);
-
-  const game = {
+// Called by the prep job once the sampled photos are downloaded and resized.
+// photos: [{ photoId, isoDate }]; gameConfig carries dayMode/hardMode plus
+// minYear/maxYear derived from the FULL index (every post on the profile),
+// so the year picker spans the account's real history rather than leaking
+// which era this game's sample came from.
+function initRounds(sessionId, photos, { dayMode, hardMode, minYear, maxYear }) {
+  games.set(sessionId, {
     dayMode: Boolean(dayMode),
-    totalRounds: roundCount,
+    hardMode: Boolean(hardMode),
+    totalRounds: photos.length,
     currentRoundIndex: 0,
-    rounds: sample.map((p) => ({
+    minYear,
+    maxYear,
+    rounds: photos.map((p) => ({
       photoId: p.photoId,
       trueDate: isoToDateParts(p.isoDate),
       guesses: [],
@@ -48,12 +34,7 @@ function startGame(sessionId, manifest, { rounds, dayMode }) {
       solved: false,
       pointsEarned: null,
     })),
-    minYear: Math.min(...years),
-    maxYear: Math.max(...years),
-  };
-
-  games.set(sessionId, game);
-  return { totalRounds: game.totalRounds, minYear: game.minYear, maxYear: game.maxYear };
+  });
 }
 
 function getGame(sessionId) {
@@ -80,6 +61,9 @@ function currentRoundView(sessionId) {
     totalRounds: game.totalRounds,
     photoId: round.photoId,
     dayMode: game.dayMode,
+    hardMode: game.hardMode,
+    minYear: game.minYear,
+    maxYear: game.maxYear,
     guessesUsed: round.guesses.length,
     guessesRemaining: GUESSES_PER_ROUND - round.guesses.length,
     guesses: round.guesses,
@@ -116,6 +100,15 @@ function submitGuess(sessionId, guess) {
     feedback.day = fieldDirection(normalizedGuess.day, round.trueDate.day);
   }
 
+  // Hard mode: mask the earlier/later direction — the player only learns
+  // whether each field is right or wrong. Masked BEFORE it's stored in the
+  // guess history, so the round view can't leak directions either.
+  if (game.hardMode) {
+    for (const field of Object.keys(feedback)) {
+      if (feedback[field] !== "correct") feedback[field] = "wrong";
+    }
+  }
+
   const solved = isExactGuess(normalizedGuess, round.trueDate, game.dayMode);
   round.guesses.push({ guess: normalizedGuess, feedback });
 
@@ -133,6 +126,7 @@ function submitGuess(sessionId, guess) {
       finalGuess: normalizedGuess,
       trueDate: round.trueDate,
       dayMode: game.dayMode,
+      hardMode: game.hardMode,
     });
 
     response.solved = solved;
@@ -164,4 +158,4 @@ function clearGame(sessionId) {
   games.delete(sessionId);
 }
 
-module.exports = { startGame, currentRoundView, submitGuess, endGame, clearGame };
+module.exports = { initRounds, currentRoundView, submitGuess, endGame, clearGame };
