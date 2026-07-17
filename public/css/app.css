@@ -226,6 +226,12 @@ body {
   flex-direction: column;
 }
 
+.setup-disclaimer {
+  margin: var(--s-2) 0 0;
+  color: var(--text-dim);
+  font-size: var(--fs-small);
+}
+
 .toggle-row {
   display: flex;
   align-items: center;

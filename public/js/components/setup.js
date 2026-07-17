@@ -12,18 +12,19 @@ export function renderSetup(container, { onReady }) {
           type="text"
           id="profile-url"
           class="text-input"
-          placeholder="instagram.com/username"
+          placeholder="instagram.com/username OR username"
         />
+        <p class="setup-disclaimer">No images are permanently saved.</p>
 
         <div class="toggle-row">
-          <span>Guess the day too</span>
+          <span>Guess the day too: 1.3x</span>
           <button type="button" id="day-toggle" class="toggle" aria-pressed="false">
             <span class="toggle-knob"></span>
           </button>
         </div>
 
         <div class="toggle-row">
-          <span>Hard mode — no hints, 1.5× points</span>
+          <span>Hard mode - no hints: 1.5× points</span>
           <button type="button" id="hard-toggle" class="toggle" aria-pressed="false">
             <span class="toggle-knob"></span>
           </button>
