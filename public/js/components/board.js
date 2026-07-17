@@ -73,6 +73,9 @@ export async function renderBoard(container, { onGameOver }) {
   async function loadRound() {
     const round = await api.gameRound();
     updateChip(round);
+    // Presentational only (RESTYLE.md §0.5): fade the photo in once loaded.
+    photoImg.classList.remove("loaded");
+    photoImg.onload = () => photoImg.classList.add("loaded");
     photoImg.src = round.photoUrl;
 
     if (!round.dayMode && round.revealedDay) {

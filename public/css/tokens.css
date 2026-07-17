@@ -1,20 +1,54 @@
 :root {
-  --bg: #1a1a1d;          /* page background, deep charcoal */
-  --surface: #2c2a28;     /* cards, warm dark gray */
-  --accent: #e8a54b;      /* correct/close, buttons — warm amber-gold */
-  --early: #5b8dbe;       /* "too early" feedback, soft blue */
-  --late: #d97757;        /* "too late" feedback, muted coral */
-  --text: #f2efe9;        /* primary, off-white */
-  --text-dim: #9b9691;    /* secondary, muted gray */
+  /* color */
+  --bg: #1a1a1d;
+  --surface: #2c2a28;        /* cards */
+  --surface-2: #343130;      /* raised bits on cards (segmented control track, etc.) */
+  --field: #201f1e;          /* input/select backgrounds — darker than card */
+  --frame-bg: #141416;       /* photo letterbox — near-black so it reads as intentional matting */
+  --border: rgba(242, 239, 233, 0.10);
+  --border-strong: rgba(242, 239, 233, 0.18);
+  --accent: #e8a54b;
+  --accent-strong: #f2c879;
+  --accent-glow: rgba(232, 165, 75, 0.35);
+  --early: #5b8dbe;
+  --late: #d97757;
+  --danger: #d97757;         /* errors reuse the coral */
+  --text: #f2efe9;
+  --text-dim: #9b9691;
+  --text-on-accent: #241a0e; /* dark text on amber fills */
   --win-gradient: linear-gradient(135deg, #e8a54b, #f2c879);
 
-  --radius-card: 14px;
-  --radius-cell: 8px;
-  --shadow-card: 0 6px 24px rgba(0, 0, 0, 0.35);
+  /* elevation */
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.40);
+  --frame-ring: inset 0 0 0 1px rgba(232, 165, 75, 0.14);
 
+  /* radius */
+  --radius-card: 16px;
+  --radius-field: 10px;
+  --radius-cell: 8px;
+  --radius-pill: 999px;
+
+  /* spacing — 4pt scale */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px;  --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px;
+
+  /* type */
   --font-ui: -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
   /* Accent serif for reveal/results moments only. System stack on purpose —
      no self-hosted font asset means no extra weight on the Pi's disk/CPU
      and no dependency to keep in sync. */
   --font-accent: Georgia, "Times New Roman", serif;
+  --fs-micro: 0.72rem;    /* uppercase micro-labels */
+  --fs-small: 0.85rem;
+  --fs-body: 1rem;
+  --fs-title: 1.25rem;
+  --fs-display: 2rem;
+  --fs-hero: 2.75rem;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --t-fast: 140ms;
+  --t-med: 240ms;
 }

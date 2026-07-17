@@ -1,29 +1,59 @@
+/* =========================================================================
+   1. BASE / RESET
+   ========================================================================= */
+
 * {
   box-sizing: border-box;
+}
+
+/* The only other !important in this file lives in the reduced-motion block
+   at the bottom. .progress-card (and similar) set `display: flex`, which —
+   at equal specificity — beats the browser's UA-stylesheet `[hidden] {
+   display: none}` rule, since author styles always win over UA styles
+   regardless of source order. Without this, a hidden card stays visible. */
+[hidden] {
+  display: none !important;
 }
 
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-ui);
   min-height: 100%;
 }
 
 body {
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(232, 165, 75, 0.05), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* =========================================================================
+   2. SHELL / HEADER
+   ========================================================================= */
+
+.wordmark {
+  font-family: var(--font-accent);
+  font-size: var(--fs-title);
+  font-weight: 400;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  text-align: center;
+  margin: var(--s-5) 0 0;
 }
 
 #app {
   width: 100%;
   max-width: 520px;
   min-width: 0;
-  padding: 24px 16px 48px;
+  padding: var(--s-4) clamp(12px, 4vw, 24px) var(--s-8);
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 200ms ease, transform 200ms ease;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out);
 }
 
 #app.screen-enter {
@@ -31,84 +61,165 @@ body {
   transform: translateY(0);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  #app, .history-row { transition: none !important; animation: none !important; }
-}
+/* =========================================================================
+   3. SHARED PRIMITIVES
+   ========================================================================= */
 
 .card {
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
-  padding: 24px;
+  box-shadow: var(--shadow-2);
+  padding: var(--s-6);
 }
 
 .btn {
   display: inline-block;
   width: 100%;
-  padding: 14px 20px;
+  min-height: 52px;
+  padding: var(--s-4) var(--s-5);
   border: none;
-  border-radius: var(--radius-cell);
+  border-radius: var(--radius-field);
   font-family: var(--font-ui);
-  font-size: 1rem;
+  font-size: var(--fs-body);
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.btn:active {
+  transform: scale(0.98);
 }
 
 .btn-accent {
   background: var(--accent);
-  color: #1a1a1d;
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-1);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
 }
 
 .btn-outline {
   background: transparent;
   color: var(--text);
-  border: 1px solid var(--text-dim);
+  border: 1px solid var(--border-strong);
 }
 
-.text-input, .picker {
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Own state, not a faded accent — a disabled amber button reads as
+   "broken", not "not ready yet". Higher specificity than .btn-accent/
+   .btn-outline (two class-level selectors vs one) wins regardless of
+   source order. */
+.btn:disabled {
+  cursor: not-allowed;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.text-input,
+.picker {
   width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius-cell);
-  border: 1px solid rgba(242, 239, 233, 0.15);
-  background: var(--bg);
+  min-height: 52px;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--radius-field);
+  border: 1px solid var(--border);
+  background: var(--field);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 1rem;
+  font-size: var(--fs-body); /* must stay >=16px: prevents iOS zoom-on-focus */
+}
+
+.text-input:focus,
+.picker:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Custom select chrome — replaces raw OS <select> arrows. */
+.picker {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--s-4) + 22px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%239b9691' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--s-4) center;
+  background-size: 12px;
+  cursor: pointer;
+}
+
+/* A field the player already guessed correctly — reads as "won", not
+   "broken". Overrides the browser's default disabled-control dimming. */
+.picker-locked {
+  opacity: 1;
+  color: var(--accent);
+  -webkit-text-fill-color: var(--accent);
+  border-color: rgba(232, 165, 75, 0.5);
+  background-color: rgba(232, 165, 75, 0.10);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.5L5 9l4.5-6' stroke='%23e8a54b' stroke-width='1.75' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  cursor: default;
 }
 
 .field-label {
   color: var(--text-dim);
-  font-size: 0.85rem;
-  margin: 16px 0 8px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: var(--s-4) 0 var(--s-2);
 }
 
-/* ---------- gate ---------- */
+/* =========================================================================
+   4. GATE
+   ========================================================================= */
 
 .gate-screen {
   display: flex;
   justify-content: center;
-  margin-top: 20vh;
+  margin-top: 14vh;
 }
 
 .gate-card {
   width: 100%;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--s-4);
 }
 
-.gate-error, .setup-error {
-  color: var(--late);
-  font-size: 0.85rem;
+/* Re-triggers on every failed attempt: the error toggles [hidden] off,
+   which re-enters this :has() match each time. Silently degrades (no
+   shake, error text still shows) wherever :has() isn't supported. */
+.gate-card:has(#gate-error:not([hidden])) {
+  animation: shake 360ms var(--ease-out);
+}
+
+.gate-error,
+.setup-error {
+  color: var(--danger);
+  font-size: var(--fs-small);
   margin: 0;
+  animation: slide-in var(--t-med) var(--ease-out);
 }
 
-/* ---------- setup ---------- */
+/* =========================================================================
+   5. SETUP
+   ========================================================================= */
 
 .setup-card {
   display: flex;
@@ -119,71 +230,83 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 16px;
+  min-height: 48px;
+  margin-top: var(--s-4);
 }
 
 .toggle {
-  width: 44px;
-  height: 26px;
-  border-radius: 13px;
-  background: rgba(242, 239, 233, 0.15);
-  border: none;
+  flex-shrink: 0;
+  width: 48px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  border: 1px solid var(--border);
   position: relative;
   cursor: pointer;
   padding: 0;
+  transition: background var(--t-med) var(--ease-out), box-shadow var(--t-med) var(--ease-out);
 }
 
 .toggle-knob {
   position: absolute;
-  top: 3px;
+  top: 2px;
   left: 3px;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: var(--text-dim);
-  transition: transform 150ms ease, background 150ms ease;
+  transition: transform var(--t-med) var(--ease-spring), background var(--t-med) var(--ease-out);
 }
 
 .toggle-on {
-  background: rgba(232, 165, 75, 0.3);
+  background: rgba(232, 165, 75, 0.35);
+  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .toggle-on .toggle-knob {
-  transform: translateX(18px);
+  transform: translateX(20px);
   background: var(--accent);
 }
 
+/* Segmented control */
 .rounds-row {
   display: flex;
-  gap: 8px;
+  gap: var(--s-1);
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--s-1);
 }
 
 .chip-btn {
   flex: 1;
-  padding: 10px;
-  border-radius: var(--radius-cell);
-  border: 1px solid rgba(242, 239, 233, 0.15);
+  min-height: 44px;
+  padding: var(--s-2);
+  border-radius: var(--radius-pill);
+  border: none;
   background: transparent;
-  color: var(--text);
+  color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
 }
 
 .chip-btn-active {
   background: var(--accent);
-  color: #1a1a1d;
-  border-color: var(--accent);
-  font-weight: 600;
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-1);
 }
 
 .setup-card .btn {
-  margin-top: 20px;
+  margin-top: var(--s-5);
 }
 
 .progress-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s-3);
   text-align: center;
 }
 
@@ -194,44 +317,75 @@ body {
 
 .progress-bar {
   height: 8px;
-  border-radius: 4px;
-  background: rgba(242, 239, 233, 0.1);
+  border-radius: var(--radius-pill);
+  background: var(--field);
   overflow: hidden;
+  position: relative;
 }
 
 .progress-fill {
   height: 100%;
   background: var(--accent);
   width: 0%;
-  transition: width 300ms ease;
+  transition: width var(--t-med) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  animation: shimmer 1.2s linear infinite;
 }
 
 .progress-count {
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
 }
 
-/* ---------- board ---------- */
+/* =========================================================================
+   6. BOARD
+   ========================================================================= */
 
 .round-chip {
+  display: block;
+  width: fit-content;
+  margin: 0 0 var(--s-4) auto;
   color: var(--text-dim);
-  font-size: 0.8rem;
-  text-align: right;
-  margin-bottom: 8px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  background: var(--field);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--s-2) var(--s-4);
 }
 
 .photo-card {
-  padding: 12px;
-  margin-bottom: 16px;
+  padding: var(--s-3);
+  margin-bottom: var(--s-5);
+  box-shadow: var(--shadow-2), var(--frame-ring);
 }
 
 .photo-frame {
-  border-radius: 10px;
+  width: min(100%, 58vh, 520px);
+  aspect-ratio: 1 / 1;
+  margin-inline: auto;
+  border-radius: calc(var(--radius-card) - 6px);
   overflow: hidden;
   border: 1px solid rgba(232, 165, 75, 0.15);
-  aspect-ratio: 1 / 1;
-  background: var(--bg);
+  background: var(--frame-bg);
 }
 
 .photo-img {
@@ -239,94 +393,119 @@ body {
   height: 100%;
   object-fit: contain;
   display: block;
+  opacity: 0;
+  transition: opacity var(--t-med) var(--ease-out);
+}
+
+.photo-img.loaded {
+  opacity: 1;
 }
 
 .revealed-day {
   color: var(--text-dim);
-  font-size: 0.85rem;
+  font-size: var(--fs-small);
+  font-style: italic;
   text-align: center;
-  margin: 10px 0 0;
+  margin: var(--s-3) 0 0;
 }
 
+/* =========================================================================
+   7. GUESS INPUT
+   ========================================================================= */
+
 .guess-input {
-  margin-bottom: 16px;
+  margin-bottom: var(--s-5);
 }
 
 .picker-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
 }
+
+/* =========================================================================
+   8. HISTORY
+   ========================================================================= */
 
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--s-2);
 }
 
 .history-row {
   display: flex;
-  gap: 8px;
-  animation: pop-in 150ms ease;
-}
-
-@keyframes pop-in {
-  from { transform: scale(0.96); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+  gap: var(--s-2);
 }
 
 .history-cell {
   flex: 1;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 8px;
+  padding: var(--s-2);
   border-radius: var(--radius-cell);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
 }
 
 .cell-correct {
-  background: rgba(232, 165, 75, 0.25);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .cell-early {
   background: rgba(91, 141, 190, 0.2);
   color: var(--early);
+  border-color: rgba(91, 141, 190, 0.4);
 }
 
 .cell-late {
   background: rgba(217, 119, 87, 0.2);
   color: var(--late);
+  border-color: rgba(217, 119, 87, 0.4);
 }
 
-/* hard mode: field is wrong but no direction revealed */
+/* hard mode: field is wrong but no direction revealed — visually "dead" */
 .cell-wrong {
-  background: rgba(155, 150, 145, 0.15);
+  background: var(--field);
   color: var(--text-dim);
 }
 
-.picker-locked {
-  border-color: rgba(232, 165, 75, 0.5);
-  color: var(--accent);
-  opacity: 1;
+/* Newest row only (renderHistory puts it first in the DOM). Older rows
+   re-mount on every render too, but only :first-child gets the animation
+   rule, so they don't visibly replay it. */
+.history-row:first-child .history-cell {
+  animation: flip-in 320ms var(--ease-out) backwards;
 }
 
-/* ---------- reveal ---------- */
+.history-row:first-child .history-cell:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.history-row:first-child .history-cell:nth-child(3) {
+  animation-delay: 180ms;
+}
+
+/* =========================================================================
+   9. REVEAL
+   ========================================================================= */
 
 .reveal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(26, 26, 29, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  animation: fade-in 200ms ease;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  padding: var(--s-6);
+  animation: fade-in var(--t-med) var(--ease-out);
 }
 
 .reveal-card {
@@ -335,18 +514,20 @@ body {
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s-3);
+  animation: reveal-in var(--t-med) var(--ease-out);
 }
 
 .reveal-date {
   font-family: var(--font-accent);
-  font-size: 1.4rem;
+  font-size: var(--fs-title);
   margin: 0;
 }
 
 .reveal-points {
+  position: relative;
   font-family: var(--font-accent);
-  font-size: 2rem;
+  font-size: var(--fs-hero);
   font-weight: 700;
   margin: 0;
   color: var(--accent);
@@ -359,35 +540,56 @@ body {
   color: transparent;
 }
 
-/* ---------- results ---------- */
+.reveal-solved .reveal-points::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  z-index: -1;
+  background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+  animation: glow-pulse 600ms var(--ease-out);
+}
+
+/* =========================================================================
+   10. RESULTS
+   ========================================================================= */
 
 .results-screen {
   text-align: center;
-  margin-top: 10vh;
+  margin-top: 8vh;
 }
 
 .results-total {
+  position: relative;
   font-family: var(--font-accent);
-  font-size: 3rem;
+  font-size: var(--fs-hero);
   font-weight: 700;
   background: var(--win-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  margin: 0 0 20px;
+  margin: 0 0 var(--s-5);
+}
+
+.results-total::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  z-index: -1;
+  background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+  animation: glow-pulse 600ms var(--ease-out);
 }
 
 .dot-strip {
   display: flex;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 32px;
+  gap: var(--s-3);
+  margin-bottom: var(--s-8);
   flex-wrap: wrap;
 }
 
 .dot {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
 }
 
@@ -396,7 +598,8 @@ body {
 }
 
 .dot-partial {
-  background: rgba(232, 165, 75, 0.4);
+  background: transparent;
+  border: 2px solid var(--accent);
 }
 
 .dot-zero {
@@ -406,7 +609,110 @@ body {
 .results-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--s-3);
   max-width: 320px;
   margin: 0 auto;
+}
+
+/* =========================================================================
+   11. MOTION
+   ========================================================================= */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes reveal-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+
+@keyframes flip-in {
+  from { opacity: 0; transform: rotateX(90deg); }
+  to { opacity: 1; transform: rotateX(0); }
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes glow-pulse {
+  0% { opacity: 0; transform: scale(0.8); }
+  50% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
+/* =========================================================================
+   12. MEDIA QUERIES
+   ========================================================================= */
+
+/* Short viewports: keep the Guess button reachable under the thumb while
+   the guess history scrolls beneath it. */
+@media (max-height: 700px) {
+  .guess-input {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(to bottom, transparent, var(--bg) 30%);
+    padding-top: var(--s-4);
+    padding-bottom: calc(var(--s-3) + env(safe-area-inset-bottom));
+  }
+}
+
+/* Reveal becomes a bottom sheet on phones — feels native. */
+@media (max-width: 480px) {
+  .reveal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .reveal-card {
+    max-width: 100%;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    padding-bottom: calc(var(--s-6) + env(safe-area-inset-bottom));
+  }
+}
+
+/* Optional desktop stretch: two-column board layout (photo left, picker
+   right, history spanning full width below). Grid auto-placement only —
+   no markup or JS required: chip and history-list explicitly span both
+   columns, so auto-placement naturally slots photo-card and
+   #guess-input-slot side by side in the row between them. */
+@media (min-width: 900px) {
+  .board-screen {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-6);
+    align-items: start;
+  }
+
+  .round-chip,
+  #history-list {
+    grid-column: 1 / -1;
+  }
+
+  .photo-card,
+  .guess-input {
+    margin-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
