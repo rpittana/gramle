@@ -2,23 +2,27 @@ const { spawn } = require("child_process");
 const fs = require("fs/promises");
 const { INSTALOADER_BIN, IG_LOGIN_USER, IG_SESSION_FILE } = require("../config");
 
+// Accepts www./m. (mobile) subdomains or none, http or https or neither.
 const PROFILE_URL_RE =
-  /^(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]{1,30})\/?(?:[?#].*)?$/i;
+  /^(?:https?:\/\/)?(?:(?:www|m)\.)?instagram\.com\/([a-zA-Z0-9._]{1,30})\/?(?:[?#].*)?$/i;
 const BARE_USERNAME_RE = /^[a-zA-Z0-9._]{1,30}$/;
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp)$/i;
 const JSON_EXT_RE = /\.json$/i;
 const POLL_MS = 1500;
 
-// Accepts either a full profile URL or a bare username; returns null if
-// neither shape matches (e.g. someone pasted a post link or a search query).
+// Accepts a full profile URL (with or without protocol/www/m. subdomain, and
+// tolerating a trailing slash or query string), a bare username, or a bare
+// username with a leading "@" (how people usually copy a handle). Returns
+// null if none of those shapes match (e.g. someone pasted a post link).
 function parseProfileInput(input) {
   if (typeof input !== "string") return null;
-  const trimmed = input.trim();
+  let trimmed = input.trim();
   if (!trimmed) return null;
 
   const urlMatch = trimmed.match(PROFILE_URL_RE);
   if (urlMatch) return urlMatch[1];
 
+  if (trimmed.startsWith("@")) trimmed = trimmed.slice(1);
   if (BARE_USERNAME_RE.test(trimmed)) return trimmed;
 
   return null;
