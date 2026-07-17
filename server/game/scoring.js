@@ -6,6 +6,11 @@ const GUESSES_PER_ROUND = POINTS_BY_GUESS.length;
 
 // Hard mode (no earlier/later hints, only right/wrong) pays out extra.
 const HARD_MODE_MULTIPLIER = 1.5;
+// Day mode (guessing the exact day too) pays out extra as well — it's a
+// genuinely harder round (a third field to nail), not just the existing
+// near-miss day bonus in the consolation case. Stacks multiplicatively with
+// hard mode when both are on.
+const DAY_MODE_MULTIPLIER = 1.3;
 
 function pointsForSolve(guessNumber) {
   return POINTS_BY_GUESS[guessNumber - 1] ?? 0;
@@ -52,12 +57,15 @@ function computeRoundScore({ solved, guessNumber, finalGuess, trueDate, dayMode,
     }
   }
 
-  return hardMode ? Math.round(points * HARD_MODE_MULTIPLIER) : points;
+  if (dayMode) points *= DAY_MODE_MULTIPLIER;
+  if (hardMode) points *= HARD_MODE_MULTIPLIER;
+  return Math.round(points);
 }
 
 module.exports = {
   GUESSES_PER_ROUND,
   HARD_MODE_MULTIPLIER,
+  DAY_MODE_MULTIPLIER,
   pointsForSolve,
   monthsBetween,
   consolationPoints,

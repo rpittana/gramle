@@ -294,6 +294,10 @@ Additionally, `raw/` is deleted as soon as ingest finishes, even mid-session.
 - Day mode adds a consolation day term **only when the final guess's month and year are
   both exact**: `+ max(0, 20 − 2 × |daysOff|)`. One combined number — never a separate
   day score.
+- Day mode also multiplies the round's total (solve or consolation, after the day term
+  above) by **1.3×** — guessing a third field is genuinely harder and should pay out
+  more, not just soften near-misses. Stacks multiplicatively with hard mode's 1.5× when
+  both are on (day+hard = 1.95×). Rounded once at the end, not per-multiplier.
 - Game total = sum of rounds. Results screen shows a per-round dot strip:
   solved / consolation / zero.
 
