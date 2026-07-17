@@ -1,5 +1,6 @@
 const { spawn } = require("child_process");
 const fs = require("fs/promises");
+const { INSTALOADER_BIN } = require("../config");
 
 const PROFILE_URL_RE =
   /^(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9._]{1,30})\/?(?:[?#].*)?$/i;
@@ -53,7 +54,7 @@ function scrapeProfile(username, rawDir, { maxPosts, onProgress, registerChild }
       username,
     ];
 
-    const child = spawn("instaloader", args, { cwd: rawDir });
+    const child = spawn(INSTALOADER_BIN, args, { cwd: rawDir });
     if (registerChild) registerChild(child);
 
     let stderrTail = "";
@@ -89,9 +90,18 @@ function scrapeProfile(username, rawDir, { maxPosts, onProgress, registerChild }
       if (settled) return;
       settled = true;
       const count = await countImages(rawDir);
+      const tail = stderrTail.toLowerCase();
+      // Instagram blocking an anonymous query (403/401 on the GraphQL
+      // endpoint) makes Instaloader print a misleading "does not exist"
+      // for profiles that are very much real — check for the block first
+      // so we don't send users chasing a typo that isn't there.
+      const looksBlocked = /\b40[13]\b/.test(tail) || tail.includes("json query");
+
       if (count > 0) {
         resolve({ count });
-      } else if (stderrTail.toLowerCase().includes("does not exist")) {
+      } else if (looksBlocked) {
+        reject(new Error("Instagram wouldn't let us in right now — try again in a few minutes."));
+      } else if (tail.includes("does not exist")) {
         reject(new Error(`The profile "${username}" doesn't exist or isn't public.`));
       } else {
         reject(new Error("Instagram wouldn't let us in right now — try again in a few minutes."));

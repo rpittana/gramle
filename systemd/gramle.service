@@ -7,7 +7,7 @@ Type=simple
 User=__SERVICE_USER__
 WorkingDirectory=__APP_DIR__
 EnvironmentFile=__APP_DIR__/.env
-ExecStart=/usr/bin/env node __APP_DIR__/server/index.js
+ExecStart=__NODE_BIN__ __APP_DIR__/server/index.js
 Restart=always
 RestartSec=5
 

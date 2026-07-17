@@ -9,6 +9,13 @@ const imagesRouter = require("./routes/images");
 
 const app = express();
 
+// Trust X-Forwarded-For only when the immediate peer is the loopback
+// interface — i.e. only from a reverse proxy running on this same host.
+// Without this, express-rate-limit refuses to start (it won't guess at an
+// IP from a header it can't verify), and a direct LAN connection bypassing
+// the proxy still can't spoof its way past the rate limiter.
+app.set("trust proxy", "loopback");
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "..", "public")));
